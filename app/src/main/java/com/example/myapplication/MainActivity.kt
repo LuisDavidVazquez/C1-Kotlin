@@ -75,75 +75,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Camera
-
-
-// Data classes para la API
-data class LoginRequest(
-    val username: String,
-    val password: String
-)
-
-data class LoginResponse(
-    val success: Boolean,
-    val message: String
-)
-
-// Data classes para la API de tareas
-data class Task(
-    val id: Int,
-    val title: String,
-    val description: String
-)
-
-data class TaskRequest(
-    val title: String,
-    val description: String
-)
-
-// Modifica la data class para manejar la respuesta del servidor
-data class TaskResponse(
-    val tasks: List<Task>
-)
-
-// Asegúrate de que estas clases estén definidas correctamente
-data class CreateTaskResponse(
-    val success: Boolean,
-    val task: Task?
-)
-
-// Interface para la API
-interface ApiService {
-    @POST("auth/login")
-    suspend fun login(@Body loginRequest: LoginRequest): Response<LoginResponse>
-    
-    @GET("tasks")
-    suspend fun getTasks(): Response<TaskResponse>
-    
-    @POST("tasks")
-    suspend fun createTask(@Body task: TaskRequest): Response<CreateTaskResponse>
-    
-    @DELETE("tasks/{id}")
-    suspend fun deleteTask(@Path("id") taskId: Int): Response<Unit>
-    
-    @PUT("tasks/{id}")
-    suspend fun updateTask(
-        @Path("id") taskId: Int,
-        @Body task: TaskRequest
-    ): Response<CreateTaskResponse>
-}
-
-// Singleton para Retrofit
-object RetrofitClient {
-    private const val BASE_URL = "http://10.0.2.2:3000/"
-
-    val apiService: ApiService by lazy {
-        Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(ApiService::class.java)
-    }
-}
+import com.example.myapplication.network.*
 
 // Definir las rutas de navegación
 sealed class Screen(
