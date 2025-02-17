@@ -59,4 +59,18 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+    
+    // Accompanist para permisos en Compose
+    implementation("com.google.accompanist:accompanist-permissions:0.32.0")
+    
+    // CameraX
+    implementation("androidx.camera:camera-camera2:1.3.1")
+    implementation("androidx.camera:camera-lifecycle:1.3.1")
+    implementation("androidx.camera:camera-view:1.3.1")
+    
+    // Coil para cargar imágenes
+    implementation("io.coil-kt:coil-compose:2.4.0")
+
+    // Navigation
+    implementation("androidx.navigation:navigation-compose:2.7.7")
 }

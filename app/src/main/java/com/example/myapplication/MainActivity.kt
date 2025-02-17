@@ -37,6 +37,44 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import android.util.Log
+import android.Manifest
+import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.material.icons.filled.Camera
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import coil.compose.rememberAsyncImagePainter
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.rememberPermissionState
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
+import java.util.concurrent.Executor
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.shouldShowRationale
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material.icons.filled.List
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Camera
 
 
 // Data classes para la API
@@ -107,6 +145,16 @@ object RetrofitClient {
     }
 }
 
+// Definir las rutas de navegación
+sealed class Screen(
+    val route: String,
+    val title: String,
+    val icon: ImageVector
+) {
+    object Tasks : Screen("tasks", "Tareas", Icons.Default.List)
+    object Camera : Screen("camera", "Cámara", Icons.Default.Camera)
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,7 +163,7 @@ class MainActivity : ComponentActivity() {
                 var isLoggedIn by remember { mutableStateOf(false) }
                 
                 if (isLoggedIn) {
-                    TaskScreen()
+                    MainScreen()
                 } else {
                     LoginScreen(onLoginSuccess = { isLoggedIn = true })
                 }
@@ -245,37 +293,56 @@ fun LoginScreenPreview() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TaskScreen() {
-    var tasks by remember { mutableStateOf<List<Task>>(emptyList()) }
-    var newTaskTitle by remember { mutableStateOf("") }
-    var newTaskDescription by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
+fun MainScreen() {
+    val navController = rememberNavController()
+    var photoUri by remember { mutableStateOf<Uri?>(null) }
 
-    // Modificar la carga inicial de tareas
-    LaunchedEffect(Unit) {
-        try {
-            isLoading = true
-            val response = RetrofitClient.apiService.getTasks()
-            if (response.isSuccessful) {
-                response.body()?.let { taskResponse ->
-                    tasks = taskResponse.tasks  // Acceder a la lista a través de .tasks
-                } ?: run {
-                    tasks = emptyList()
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = navBackStackEntry?.destination?.route
+                
+                val items = listOf(Screen.Tasks, Screen.Camera)
+                
+                items.forEach { screen ->
+                    NavigationBarItem(
+                        icon = { Icon(screen.icon, contentDescription = screen.title) },
+                        label = { Text(screen.title) },
+                        selected = currentRoute == screen.route,
+                        onClick = {
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.startDestinationId) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
                 }
-            } else {
-                errorMessage = "Error al cargar las tareas"
             }
-        } catch (e: Exception) {
-            errorMessage = "Error de conexión: ${e.message}"
-        } finally {
-            isLoading = false
+        }
+    ) { padding ->
+        NavHost(
+            navController = navController,
+            startDestination = Screen.Tasks.route,
+            modifier = Modifier.padding(padding)
+        ) {
+            composable(Screen.Tasks.route) {
+                TasksScreen()
+            }
+            
+            composable(Screen.Camera.route) {
+                CameraView(photoUri = photoUri, onPhotoTaken = { uri -> photoUri = uri })
+            }
         }
     }
+}
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TasksScreen() {
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -287,118 +354,213 @@ fun TaskScreen() {
             )
         }
     ) { padding ->
+        TaskScreen(modifier = Modifier.padding(padding))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CameraView(
+    photoUri: Uri?,
+    onPhotoTaken: (Uri) -> Unit
+) {
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Cámara") },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = Color.White
+                )
+            )
+        }
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
         ) {
-            OutlinedTextField(
-                value = newTaskTitle,
-                onValueChange = { newTaskTitle = it },
-                label = { Text("Título de la tarea") },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isLoading
-            )
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            OutlinedTextField(
-                value = newTaskDescription,
-                onValueChange = { newTaskDescription = it },
-                label = { Text("Descripción") },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isLoading
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            errorMessage?.let {
-                Text(
-                    text = it,
-                    color = Color.Red,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            }
-            
-            Button(
-                onClick = {
-                    if (newTaskTitle.isNotBlank() && newTaskDescription.isNotBlank()) {
-                        scope.launch {
-                            try {
-                                isLoading = true
-                                val taskRequest = TaskRequest(
-                                    title = newTaskTitle.trim(),
-                                    description = newTaskDescription.trim()
-                                )
-                                
-                                val response = RetrofitClient.apiService.createTask(taskRequest)
-                                if (response.isSuccessful) {
-                                    response.body()?.let { responseBody ->
-                                        // Asumiendo que la respuesta contiene la tarea en task
-                                        responseBody.task?.let { newTask ->
-                                            tasks = tasks + newTask
-                                            newTaskTitle = ""
-                                            newTaskDescription = ""
-                                            Toast.makeText(context, "Tarea creada con éxito", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                } else {
-                                    Toast.makeText(context, "Error al crear la tarea", Toast.LENGTH_SHORT).show()
-                                }
-                            } catch (e: Exception) {
-                                Log.e("CreateTask", "Error: ${e.message}", e)
-                                Toast.makeText(context, "Error de conexión: ${e.message}", Toast.LENGTH_SHORT).show()
-                            } finally {
-                                isLoading = false
-                            }
-                        }
-                    } else {
-                        Toast.makeText(context, "Por favor complete todos los campos", Toast.LENGTH_SHORT).show()
+            if (photoUri == null) {
+                CameraScreen(
+                    onImageCaptured = { uri ->
+                        onPhotoTaken(uri)
+                    },
+                    onError = { error ->
+                        Log.e("Camera", "Error: ${error.message}", error)
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isLoading && newTaskTitle.isNotBlank() && newTaskDescription.isNotBlank()
-            ) {
-                Text(if (isLoading) "Creando..." else "Crear Tarea")
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Image(
+                            painter = rememberAsyncImagePainter(photoUri),
+                            contentDescription = "Foto capturada",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(400.dp)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Button(
+                            onClick = { onPhotoTaken(Uri.EMPTY) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Tomar otra foto")
+                        }
+                    }
+                }
             }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            if (isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TaskScreen(modifier: Modifier = Modifier) {
+    var tasks by remember { mutableStateOf<List<Task>>(emptyList()) }
+    var newTaskTitle by remember { mutableStateOf("") }
+    var newTaskDescription by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Cargar tareas al inicio
+    LaunchedEffect(Unit) {
+        try {
+            isLoading = true
+            val response = RetrofitClient.apiService.getTasks()
+            if (response.isSuccessful) {
+                response.body()?.let { taskResponse ->
+                    tasks = taskResponse.tasks
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(tasks) { task ->
-                        TaskItem(
-                            task = task,
-                            onDelete = { taskId ->
-                                scope.launch {
-                                    try {
-                                        val response = RetrofitClient.apiService.deleteTask(taskId)
-                                        if (response.isSuccessful) {
-                                            tasks = tasks.filter { it.id != taskId }
-                                            Toast.makeText(context, "Tarea eliminada", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            errorMessage = "Error al eliminar la tarea"
-                                        }
-                                    } catch (e: Exception) {
-                                        errorMessage = "Error de conexión: ${e.message}"
+                errorMessage = "Error al cargar las tareas"
+            }
+        } catch (e: Exception) {
+            errorMessage = "Error de conexión: ${e.message}"
+        } finally {
+            isLoading = false
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        OutlinedTextField(
+            value = newTaskTitle,
+            onValueChange = { newTaskTitle = it },
+            label = { Text("Título de la tarea") },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        OutlinedTextField(
+            value = newTaskDescription,
+            onValueChange = { newTaskDescription = it },
+            label = { Text("Descripción") },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        errorMessage?.let {
+            Text(
+                text = it,
+                color = Color.Red,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        }
+        
+        Button(
+            onClick = {
+                if (newTaskTitle.isNotBlank() && newTaskDescription.isNotBlank()) {
+                    scope.launch {
+                        try {
+                            isLoading = true
+                            val taskRequest = TaskRequest(
+                                title = newTaskTitle.trim(),
+                                description = newTaskDescription.trim()
+                            )
+                            
+                            val response = RetrofitClient.apiService.createTask(taskRequest)
+                            if (response.isSuccessful) {
+                                response.body()?.let { responseBody ->
+                                    // Asumiendo que la respuesta contiene la tarea en task
+                                    responseBody.task?.let { newTask ->
+                                        tasks = tasks + newTask
+                                        newTaskTitle = ""
+                                        newTaskDescription = ""
+                                        Toast.makeText(context, "Tarea creada con éxito", Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                            },
-                            onUpdate = { updatedTask ->
-                                tasks = tasks.map { if (it.id == updatedTask.id) updatedTask else it }
+                            } else {
+                                Toast.makeText(context, "Error al crear la tarea", Toast.LENGTH_SHORT).show()
                             }
-                        )
+                        } catch (e: Exception) {
+                            Log.e("CreateTask", "Error: ${e.message}", e)
+                            Toast.makeText(context, "Error de conexión: ${e.message}", Toast.LENGTH_SHORT).show()
+                        } finally {
+                            isLoading = false
+                        }
                     }
+                } else {
+                    Toast.makeText(context, "Por favor complete todos los campos", Toast.LENGTH_SHORT).show()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading && newTaskTitle.isNotBlank() && newTaskDescription.isNotBlank()
+        ) {
+            Text(if (isLoading) "Creando..." else "Crear Tarea")
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(tasks) { task ->
+                    TaskItem(
+                        task = task,
+                        onDelete = { taskId ->
+                            scope.launch {
+                                try {
+                                    val response = RetrofitClient.apiService.deleteTask(taskId)
+                                    if (response.isSuccessful) {
+                                        tasks = tasks.filter { it.id != taskId }
+                                        Toast.makeText(context, "Tarea eliminada", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        errorMessage = "Error al eliminar la tarea"
+                                    }
+                                } catch (e: Exception) {
+                                    errorMessage = "Error de conexión: ${e.message}"
+                                }
+                            }
+                        },
+                        onUpdate = { updatedTask ->
+                            tasks = tasks.map { if (it.id == updatedTask.id) updatedTask else it }
+                        }
+                    )
                 }
             }
         }
@@ -555,6 +717,118 @@ fun UpdateTaskDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Cancelar")
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalPermissionsApi::class)
+@Composable
+fun CameraScreen(
+    onImageCaptured: (Uri) -> Unit,
+    onError: (ImageCaptureException) -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    
+    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+    
+    var previewUseCase by remember { mutableStateOf<UseCase>(Preview.Builder().build()) }
+    val imageCaptureUseCase by remember {
+        mutableStateOf(
+            ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .build()
+        )
+    }
+
+    if (!cameraPermissionState.status.isGranted) {
+        LaunchedEffect(Unit) {
+            cameraPermissionState.launchPermissionRequest()
+        }
+        return
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                val previewView = PreviewView(context).apply {
+                    this.scaleType = PreviewView.ScaleType.FILL_CENTER
+                }
+                
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+                cameraProviderFuture.addListener({
+                    val cameraProvider = cameraProviderFuture.get()
+                    
+                    previewUseCase = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+                    
+                    try {
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            previewUseCase,
+                            imageCaptureUseCase
+                        )
+                    } catch (e: Exception) {
+                        Log.e("CameraScreen", "Error al iniciar la cámara", e)
+                    }
+                }, ContextCompat.getMainExecutor(context))
+                
+                previewView
+            }
+        )
+        
+        IconButton(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp),
+            onClick = {
+                takePhoto(
+                    context = context,
+                    imageCapture = imageCaptureUseCase,
+                    onImageCaptured = onImageCaptured,
+                    onError = onError
+                )
+            }
+        ) {
+            Icon(
+                imageVector = Icons.Default.Camera,
+                contentDescription = "Tomar foto",
+                tint = Color.White
+            )
+        }
+    }
+}
+
+private fun takePhoto(
+    context: Context,
+    imageCapture: ImageCapture,
+    onImageCaptured: (Uri) -> Unit,
+    onError: (ImageCaptureException) -> Unit
+) {
+    val photoFile = File(
+        context.cacheDir,
+        SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US)
+            .format(System.currentTimeMillis()) + ".jpg"
+    )
+
+    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+    imageCapture.takePicture(
+        outputOptions,
+        ContextCompat.getMainExecutor(context),
+        object : ImageCapture.OnImageSavedCallback {
+            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                val savedUri = Uri.fromFile(photoFile)
+                onImageCaptured(savedUri)
+            }
+
+            override fun onError(exception: ImageCaptureException) {
+                onError(exception)
             }
         }
     )
