@@ -25,7 +25,19 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.DELETE
+import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
+import retrofit2.http.PUT
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import android.util.Log
+
 
 // Data classes para la API
 data class LoginRequest(
@@ -38,10 +50,48 @@ data class LoginResponse(
     val message: String
 )
 
+// Data classes para la API de tareas
+data class Task(
+    val id: Int,
+    val title: String,
+    val description: String
+)
+
+data class TaskRequest(
+    val title: String,
+    val description: String
+)
+
+// Modifica la data class para manejar la respuesta del servidor
+data class TaskResponse(
+    val tasks: List<Task>
+)
+
+// Asegúrate de que estas clases estén definidas correctamente
+data class CreateTaskResponse(
+    val success: Boolean,
+    val task: Task?
+)
+
 // Interface para la API
 interface ApiService {
     @POST("auth/login")
     suspend fun login(@Body loginRequest: LoginRequest): Response<LoginResponse>
+    
+    @GET("tasks")
+    suspend fun getTasks(): Response<TaskResponse>
+    
+    @POST("tasks")
+    suspend fun createTask(@Body task: TaskRequest): Response<CreateTaskResponse>
+    
+    @DELETE("tasks/{id}")
+    suspend fun deleteTask(@Path("id") taskId: Int): Response<Unit>
+    
+    @PUT("tasks/{id}")
+    suspend fun updateTask(
+        @Path("id") taskId: Int,
+        @Body task: TaskRequest
+    ): Response<CreateTaskResponse>
 }
 
 // Singleton para Retrofit
@@ -62,14 +112,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MyApplicationTheme {
-                LoginScreen()
+                var isLoggedIn by remember { mutableStateOf(false) }
+                
+                if (isLoggedIn) {
+                    TaskScreen()
+                } else {
+                    LoginScreen(onLoginSuccess = { isLoggedIn = true })
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LoginScreen() {
+fun LoginScreen(onLoginSuccess: () -> Unit) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         content = { innerPadding ->
@@ -79,14 +136,14 @@ fun LoginScreen() {
                     .fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                LoginContent()
+                LoginContent(onLoginSuccess)
             }
         }
     )
 }
 
 @Composable
-fun LoginContent() {
+fun LoginContent(onLoginSuccess: () -> Unit) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
@@ -153,6 +210,7 @@ fun LoginContent() {
                         )
                         if (response.isSuccessful) {
                             Toast.makeText(context, "Login exitoso", Toast.LENGTH_SHORT).show()
+                            onLoginSuccess()
                         } else {
                             errorMessage = "Credenciales incorrectas"
                         }
@@ -181,6 +239,323 @@ fun LoginContent() {
 @Composable
 fun LoginScreenPreview() {
     MyApplicationTheme {
-        LoginScreen()
+        LoginScreen(onLoginSuccess = {})
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TaskScreen() {
+    var tasks by remember { mutableStateOf<List<Task>>(emptyList()) }
+    var newTaskTitle by remember { mutableStateOf("") }
+    var newTaskDescription by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Modificar la carga inicial de tareas
+    LaunchedEffect(Unit) {
+        try {
+            isLoading = true
+            val response = RetrofitClient.apiService.getTasks()
+            if (response.isSuccessful) {
+                response.body()?.let { taskResponse ->
+                    tasks = taskResponse.tasks  // Acceder a la lista a través de .tasks
+                } ?: run {
+                    tasks = emptyList()
+                }
+            } else {
+                errorMessage = "Error al cargar las tareas"
+            }
+        } catch (e: Exception) {
+            errorMessage = "Error de conexión: ${e.message}"
+        } finally {
+            isLoading = false
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Gestor de Tareas") },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = Color.White
+                )
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp)
+        ) {
+            OutlinedTextField(
+                value = newTaskTitle,
+                onValueChange = { newTaskTitle = it },
+                label = { Text("Título de la tarea") },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            OutlinedTextField(
+                value = newTaskDescription,
+                onValueChange = { newTaskDescription = it },
+                label = { Text("Descripción") },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            errorMessage?.let {
+                Text(
+                    text = it,
+                    color = Color.Red,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+            
+            Button(
+                onClick = {
+                    if (newTaskTitle.isNotBlank() && newTaskDescription.isNotBlank()) {
+                        scope.launch {
+                            try {
+                                isLoading = true
+                                val taskRequest = TaskRequest(
+                                    title = newTaskTitle.trim(),
+                                    description = newTaskDescription.trim()
+                                )
+                                
+                                val response = RetrofitClient.apiService.createTask(taskRequest)
+                                if (response.isSuccessful) {
+                                    response.body()?.let { responseBody ->
+                                        // Asumiendo que la respuesta contiene la tarea en task
+                                        responseBody.task?.let { newTask ->
+                                            tasks = tasks + newTask
+                                            newTaskTitle = ""
+                                            newTaskDescription = ""
+                                            Toast.makeText(context, "Tarea creada con éxito", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Error al crear la tarea", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Log.e("CreateTask", "Error: ${e.message}", e)
+                                Toast.makeText(context, "Error de conexión: ${e.message}", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                isLoading = false
+                            }
+                        }
+                    } else {
+                        Toast.makeText(context, "Por favor complete todos los campos", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading && newTaskTitle.isNotBlank() && newTaskDescription.isNotBlank()
+            ) {
+                Text(if (isLoading) "Creando..." else "Crear Tarea")
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            if (isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(tasks) { task ->
+                        TaskItem(
+                            task = task,
+                            onDelete = { taskId ->
+                                scope.launch {
+                                    try {
+                                        val response = RetrofitClient.apiService.deleteTask(taskId)
+                                        if (response.isSuccessful) {
+                                            tasks = tasks.filter { it.id != taskId }
+                                            Toast.makeText(context, "Tarea eliminada", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            errorMessage = "Error al eliminar la tarea"
+                                        }
+                                    } catch (e: Exception) {
+                                        errorMessage = "Error de conexión: ${e.message}"
+                                    }
+                                }
+                            },
+                            onUpdate = { updatedTask ->
+                                tasks = tasks.map { if (it.id == updatedTask.id) updatedTask else it }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TaskItem(
+    task: Task,
+    onDelete: (Int) -> Unit,
+    onUpdate: (Task) -> Unit
+) {
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = task.title,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = task.description,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            
+            Row {
+                // Botón de editar
+                IconButton(onClick = { showUpdateDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Editar tarea",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                
+                // Botón de eliminar
+                IconButton(onClick = { onDelete(task.id) }) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Eliminar tarea",
+                        tint = Color.Red
+                    )
+                }
+            }
+        }
+    }
+    
+    if (showUpdateDialog) {
+        UpdateTaskDialog(
+            task = task,
+            onUpdate = { updatedTask ->
+                onUpdate(updatedTask)
+                showUpdateDialog = false
+            },
+            onDismiss = { showUpdateDialog = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun UpdateTaskDialog(
+    task: Task,
+    onUpdate: (Task) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var title by remember { mutableStateOf(task.title) }
+    var description by remember { mutableStateOf(task.description) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Actualizar Tarea") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Título") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Descripción") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                errorMessage?.let {
+                    Text(
+                        text = it,
+                        color = Color.Red,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isBlank() || description.isBlank()) {
+                        errorMessage = "Todos los campos son requeridos"
+                        return@Button
+                    }
+                    
+                    scope.launch {
+                        try {
+                            isLoading = true
+                            val response = RetrofitClient.apiService.updateTask(
+                                taskId = task.id,
+                                task = TaskRequest(title.trim(), description.trim())
+                            )
+                            
+                            if (response.isSuccessful) {
+                                response.body()?.task?.let { updatedTask ->
+                                    onUpdate(updatedTask)
+                                    Toast.makeText(context, "Tarea actualizada", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                errorMessage = "Error al actualizar la tarea"
+                            }
+                        } catch (e: Exception) {
+                            errorMessage = "Error de conexión: ${e.message}"
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                },
+                enabled = !isLoading
+            ) {
+                Text(if (isLoading) "Actualizando..." else "Actualizar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
 }
