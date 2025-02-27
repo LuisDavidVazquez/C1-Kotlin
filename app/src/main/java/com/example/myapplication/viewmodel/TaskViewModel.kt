@@ -21,7 +21,7 @@ class TaskViewModel : ViewModel() {
     var newTaskDescription by mutableStateOf("")
         private set
         
-    var isLoading by mutableStateOf(false)
+    var isLoading by mutableStateOf(false)  
         private set
         
     var errorMessage by mutableStateOf<String?>(null)
