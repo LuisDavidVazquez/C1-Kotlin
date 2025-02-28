@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -15,6 +16,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import android.net.Uri
 import com.example.myapplication.views.TasksScreen
 import com.example.myapplication.views.CameraView
+import com.example.myapplication.views.StudentScreen
 
 sealed class Screen(
     val route: String,
@@ -23,6 +25,7 @@ sealed class Screen(
 ) {
     object Tasks : Screen("tasks", "Tareas", Icons.Default.List)
     object Camera : Screen("camera", "Cámara", Icons.Default.Camera)
+    object Students : Screen("students", "Estudiantes", Icons.Default.Person)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,7 +39,7 @@ fun AppNavigation(navController: NavHostController) {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 
-                val items = listOf(Screen.Tasks, Screen.Camera)
+                val items = listOf(Screen.Tasks, Screen.Camera, Screen.Students)
                 
                 items.forEach { screen ->
                     NavigationBarItem(
@@ -68,6 +71,10 @@ fun AppNavigation(navController: NavHostController) {
             
             composable(Screen.Camera.route) {
                 CameraView(photoUri = photoUri, onPhotoTaken = { uri -> photoUri = uri })
+            }
+            
+            composable(Screen.Students.route) {
+                StudentScreen()
             }
         }
     }
