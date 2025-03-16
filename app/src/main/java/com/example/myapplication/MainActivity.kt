@@ -25,39 +25,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
+import com.example.myapplication.data.UserPreferencesManager
+import android.content.SharedPreferences
 
 class MainActivity : ComponentActivity() {
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        if (isGranted) {
-            Log.d("Notifications", "Permiso concedido")
-        } else {
-            Log.d("Notifications", "Permiso denegado")
-        }
-    }
+    private lateinit var preferencesManager: UserPreferencesManager
 
-    private fun askNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-                PackageManager.PERMISSION_GRANTED
-            ) {
-                // Permiso ya concedido
-            } else {
-                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-    }
-
-    @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        preferencesManager = UserPreferencesManager(this)
         
         // Solicitar permiso de notificaciones
         askNotificationPermission()
         
         setContent {
             var fcmToken by remember { mutableStateOf("Cargando token...") }
+            var isDarkTheme by remember { mutableStateOf(preferencesManager.isDarkThemeEnabled) }
             
             // Obtener el token de FCM
             FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
@@ -70,7 +54,24 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            MyApplicationTheme {
+            // Observar cambios en el tema
+            DisposableEffect(Unit) {
+                val observer = object : SharedPreferences.OnSharedPreferenceChangeListener {
+                    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
+                        if (key == "dark_theme") {
+                            isDarkTheme = preferencesManager.isDarkThemeEnabled
+                        }
+                    }
+                }
+                preferencesManager.registerOnSharedPreferenceChangeListener(observer)
+                onDispose {
+                    preferencesManager.unregisterOnSharedPreferenceChangeListener(observer)
+                }
+            }
+
+            MyApplicationTheme(
+                darkTheme = isDarkTheme
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -90,6 +91,35 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            // FCM SDK (and your app) can post notifications.
+        } else {
+            // TODO: Inform user that that your app will not show notifications.
+        }
+    }
+
+    private fun askNotificationPermission() {
+        // This is only necessary for API level >= 33 (TIRAMISU)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                // FCM SDK (and your app) can post notifications.
+            } else if (shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
+                // TODO: display an educational UI explaining to the user the features that will be enabled
+                //       by them granting the POST_NOTIFICATION permission. This UI should provide the user
+                //       "OK" and "No thanks" buttons. If the user selects "OK," directly request the permission.
+                //       If the user selects "No thanks," allow the user to continue without notifications.
+            } else {
+                // Directly ask for the permission
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
     }

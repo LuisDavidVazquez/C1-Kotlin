@@ -82,7 +82,18 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    //NOSe
-    implementation("androidx.core:core-ktx:1.12.0")
+    // Security Crypto for encrypted SharedPreferences
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    
+    // Google Play Services Location
+    implementation("com.google.android.gms:play-services-location:21.2.0")
 
+    // Lifecycle Runtime Compose
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
+
+    // Lifecycle Process
+    implementation("androidx.lifecycle:lifecycle-process:2.7.0")
+
+    // LeakCanary - Memory Leak Detection
+    debugImplementation("com.squareup.leakcanary:leakcanary-android:2.13")
 }
